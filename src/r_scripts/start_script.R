@@ -17,6 +17,7 @@ dfReinvestmentFactors <- read.csv("~/Desktop/Candidate Assessment/data/dfReinves
 dfReinvestmentProjects <- read.csv("~/Desktop/Candidate Assessment/data/dfReinvestmentProjects.csv")
 dfSalesDaysFuture <- read.csv("~/Desktop/Candidate Assessment/data/dfSalesDaysFuture.csv")
 
+# dfSalesDaysFuture cleaning
 missing_date_index <- dfSalesDaysFuture$close_date == 'null'
 dfSalesDaysFuture$close_date[missing_date_index] <- '2200-01-01'
 
@@ -26,15 +27,23 @@ dfSalesDaysFuture <- dfSalesDaysFuture %>% mutate(
   close_date = ymd(close_date), 
   months_predict = 120
 )
+
+# dfCannibalizationFactors cleaning
 dfCannibalizationFactors <- dfCannibalizationFactors %>% mutate(month = ymd(month))
+
+# dfMonthlySales cleaning
 dfMonthlySales <- dfMonthlySales %>% mutate(
   loc_num = str_pad(loc_num, 5, pad = "0"),
   month = ymd(month), 
   open_date = ymd(open_date)
 )
+
+# dfReinvestmentFactors cleaning
 dfReinvestmentFactors <- dfReinvestmentFactors %>% mutate(
   loc_num = str_pad(loc_num, 5, pad = "0"),
   month = ymd(month))
+
+# dfReinvestmentProjects cleaning
 dfReinvestmentProjects <- dfReinvestmentProjects %>% mutate(
   loc_num = str_pad(loc_num, 5, pad = "0"),
   shutdown = ymd(shutdown), 
@@ -46,6 +55,3 @@ convertMe(dfSalesDaysFuture,
           dfReinvestmentProjects, 
           dfCannibalizationFactors, 
           dfReinvestmentFactors)
-
-
-
