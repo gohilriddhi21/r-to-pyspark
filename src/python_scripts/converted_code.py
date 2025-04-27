@@ -1,5 +1,6 @@
 from pyspark.sql import functions as F
 from pyspark.sql import Window
+from pyspark.sql.functions import broadcast
 from helper_pyspark import (
     fun_fill_day_details,
     fun_reinvestment_days_lost,
@@ -11,18 +12,25 @@ from helper_pyspark import (
 )
 
 def convert_me(dfSalesDaysFuture, dfSalesMonthly, dfReinvestmentProjects, dfCannibalization, dfReinvestFactors, strScope="forecast"):
+    dfSalesDaysFuture = dfSalesDaysFuture.filter(
+        F.col("open_date").isNotNull() &
+        F.col("close_date").isNotNull() &
+        F.col("loc_num").isNotNull() &
+        F.col("date_forecast").isNotNull()
+    )
+
     dfDayDetails = fun_fill_day_details(dfSalesMonthly)
     actual_cutoff = fun_get_actual_reported_day()
 
     dfSalesDaysFuture = dfSalesDaysFuture.withColumn(
-        "nMonthStart",
-        F.when(F.dayofmonth("date_forecast") < F.lit(actual_cutoff), -1).otherwise(0)
+        "nMonthStart", F.when(F.dayofmonth("date_forecast") < F.lit(actual_cutoff), -1).otherwise(0)
     ).withColumn("month_open", F.trunc("open_date", "month")) \
      .withColumn("month_close", F.trunc("close_date", "month"))
 
     dfSeq = dfSalesDaysFuture.withColumn(
         "month_offset_arr", F.sequence("nMonthStart", F.col("months_predict") - 1)
-    ).withColumn("offset", F.explode("month_offset_arr")).drop("month_offset_arr") \
+    ).withColumn("offset", F.explode("month_offset_arr")) \
+     .drop("month_offset_arr") \
      .withColumn("month", F.add_months(F.trunc("date_forecast", "month"), "offset")) \
      .drop("offset") \
      .filter((F.col("month") >= F.col("month_open")) & (F.col("month") <= F.col("month_close"))) \
@@ -31,7 +39,7 @@ def convert_me(dfSalesDaysFuture, dfSalesMonthly, dfReinvestmentProjects, dfCann
      .withColumn("month_num", F.month("month")) \
      .withColumn("leap_year", ((F.year("month") % 4 == 0) & ((F.year("month") % 100 != 0) | (F.year("month") % 400 == 0))))
 
-    dfFuture = dfSeq.join(dfDayDetails, on=["jan1_day", "month_num", "leap_year"], how="inner") \
+    dfFuture = dfSeq.join(broadcast(dfDayDetails), on=["jan1_day", "month_num", "leap_year"], how="inner") \
                     .drop("jan1_day", "month_num", "leap_year", "year_ref")
 
     window_loc = Window.partitionBy("loc_num").orderBy("month")
@@ -42,7 +50,7 @@ def convert_me(dfSalesDaysFuture, dfSalesMonthly, dfReinvestmentProjects, dfCann
         .select("loc_num", "month_num", "days").dropDuplicates(["loc_num", "month_num"])
 
     dfFuture = dfFuture.withColumn("month_num", F.month("month")) \
-                       .join(dfHist, on=["loc_num", "month_num"], how="left") \
+                       .join(broadcast(dfHist), on=["loc_num", "month_num"], how="left") \
                        .withColumn(
                            "days_max",
                            F.when((F.col("location_type_code") == "OCL") & F.col("location_type_code").isNotNull(),
@@ -59,14 +67,12 @@ def convert_me(dfSalesDaysFuture, dfSalesMonthly, dfReinvestmentProjects, dfCann
         fun_sales_days_between("close_date", F.last_day("close_date")).alias("days_after_close")
     )
 
-    dfFuture = dfFuture.join(dfOpenClose, on="loc_num", how="left") \
-                       .fillna({"days_before_open": 0, "days_after_close": 0})
-
     dfReinvDays = fun_reinvestment_days_lost(dfReinvestmentProjects, dfSalesMonthly)
-    dfFuture = dfFuture.join(dfReinvDays, on=["loc_num", "month"], how="left") \
-                       .fillna({"days_lost": 0})
 
-    dfFuture = dfFuture.withColumn("days_max", F.col("days_max") - F.col("days_lost")) \
+    dfFuture = dfFuture.join(dfOpenClose, on="loc_num", how="left") \
+                       .join(dfReinvDays, on=["loc_num", "month"], how="left") \
+                       .fillna({"days_lost": 0, "days_before_open": 0, "days_after_close": 0}) \
+                       .withColumn("days_max", F.col("days_max") - F.col("days_lost")) \
                        .withColumn("days_max", F.when(F.col("month") == F.col("month_open"),
                                                       F.col("days_max") - (F.col("days_before_open") - 1))
                                     .otherwise(F.col("days_max"))) \
@@ -80,11 +86,21 @@ def convert_me(dfSalesDaysFuture, dfSalesMonthly, dfReinvestmentProjects, dfCann
 
     dfFuture = dfFuture.withColumn(
         "reported_month",
-        F.add_months(F.date_trunc("month", F.date_sub("date_forecast", fun_get_actual_reported_day() - 1)), -1)
+        F.add_months(F.date_trunc("month", F.date_sub("date_forecast", actual_cutoff - 1)), -1)
     )
 
-    dfInfl = dfSalesMonthly.select("loc_num", F.col("month").alias("reported_month"), F.col("inflation_factor_ending").alias("inflation_factor"))
+    dfInfl = dfSalesMonthly.select(
+        "loc_num", F.col("month").alias("reported_month"), F.col("inflation_factor_ending").alias("inflation_factor")
+    )
+
     dfFuture = dfFuture.join(dfInfl, on=["loc_num", "reported_month"], how="left")
+    # Missing filling logic: fix inflation_factor if missing
+    window_infl = Window.partitionBy("reported_month", "concept_code")
+    dfFuture = dfFuture.withColumn(
+        "inflation_factor",
+        F.when(F.col("inflation_factor").isNull(), F.avg("inflation_factor").over(window_infl))
+        .otherwise(F.col("inflation_factor"))
+    )
 
     dfInc = dfFuture.select("date_forecast", "month").distinct() \
         .withColumn("months_out", fun_months_between_exact("date_forecast", "month") + 1) \
@@ -118,20 +134,22 @@ def convert_me(dfSalesDaysFuture, dfSalesMonthly, dfReinvestmentProjects, dfCann
 
     dfCann = dfCannibalization.withColumn("loc_num", F.lpad("loc_num", 5, '0')) \
                                .withColumn("month", F.to_date("month"))
+
     dfFuture = dfFuture.join(dfCann, on=["loc_num", "month"], how="left") \
                        .withColumn("gocf", F.coalesce("gocf", F.lit(0.0)))
 
     window_fill = Window.partitionBy("loc_num", "date_forecast").orderBy("month").rowsBetween(Window.unboundedPreceding, 0)
+
     dfFuture = dfFuture.withColumn("gocf", F.last("gocf", True).over(window_fill))
 
     dfReinvF = dfReinvestFactors.withColumn("loc_num", F.lpad("loc_num", 5, '0')) \
                                 .withColumn("month", F.to_date("month")) \
                                 .withColumnRenamed("factor", "reinvestment_factor")
-    dfFuture = dfFuture.join(dfReinvF, on=["loc_num", "month"], how="left") \
-                       .withColumn("reinvestment_factor", F.coalesce("reinvestment_factor", F.lit(0.0))) \
-                       .withColumn("reinvestment_factor", F.last("reinvestment_factor", True).over(window_fill))
 
-    dfFuture = dfFuture.withColumn("reinvestment_factor", F.round("reinvestment_factor", 2)) \
+    dfFuture = dfFuture.join(broadcast(dfReinvF), on=["loc_num", "month"], how="left") \
+                       .withColumn("reinvestment_factor", F.coalesce("reinvestment_factor", F.lit(0.0))) \
+                       .withColumn("reinvestment_factor", F.last("reinvestment_factor", True).over(window_fill)) \
+                       .withColumn("reinvestment_factor", F.round("reinvestment_factor", 2)) \
                        .withColumn("gocf", F.round("gocf", 15)) \
                        .withColumn("age_years", F.round(F.col("age") / 12, 1)) \
                        .withColumn("age_group",
@@ -152,8 +170,7 @@ def convert_me(dfSalesDaysFuture, dfSalesMonthly, dfReinvestmentProjects, dfCann
         "age", "concept_code", "location_type_code",
         "gocf", "reinvestment_factor", "age_years", "age_group"
     ]
-    
+
     dfFuture = dfFuture.orderBy("loc_num").select(final_cols)
-    dfFuture.show(5, truncate=False)
-    dfFuture.coalesce(1).write.mode("overwrite").csv("/Users/riddhi_gohil/Desktop/personal_git_repos/r-to-pyspark/output/optmised_temp", header=True)    
+    dfFuture.show(5, False) 
     return dfFuture
