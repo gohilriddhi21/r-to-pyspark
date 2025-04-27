@@ -94,7 +94,8 @@ def convert_me(dfSalesDaysFuture, dfSalesMonthly, dfReinvestmentProjects, dfCann
     )
 
     dfFuture = dfFuture.join(dfInfl, on=["loc_num", "reported_month"], how="left")
-    # Missing filling logic: fix inflation_factor if missing
+    
+    # null check for inflation_factor; was giving diff factor
     window_infl = Window.partitionBy("reported_month", "concept_code")
     dfFuture = dfFuture.withColumn(
         "inflation_factor",
