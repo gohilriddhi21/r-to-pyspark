@@ -172,6 +172,6 @@ def convert_me(dfSalesDaysFuture, dfSalesMonthly, dfReinvestmentProjects, dfCann
         "gocf", "reinvestment_factor", "age_years", "age_group"
     ]
 
-    dfFuture = dfFuture.orderBy("loc_num").select(final_cols)
+    dfFuture = dfFuture.select(final_cols).repartition(10).orderBy("loc_num")
     dfFuture.show(5, False) 
     return dfFuture
