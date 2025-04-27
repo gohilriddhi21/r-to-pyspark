@@ -1,5 +1,6 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, lpad, to_date, lit, when
+from converted_pyspark import convert_me
 
 # Initialize Spark session
 spark = SparkSession. \
@@ -73,8 +74,21 @@ dataFrames["dfReinvestmentProjects"] = format_dates_and_pad_loc(
     dataFrames["dfReinvestmentProjects"], date_cols=["shutdown", "reopen"]
 )
 
-print("\nCleansed DataFrame: ")
-for name, df in dataFrames.items():
-    print(f"\n{name} schema:")
-    df.printSchema()
-    df.show(5, False) # comment later; cause lazy eval
+# print("\nCleansed DataFrame: ")
+# for name, df in dataFrames.items():
+#     print(f"\n{name} schema:")
+#     df.printSchema()
+#     df.show(5, False) # comment later; cause lazy eval
+
+
+final_df = convert_me(dataFrames["dfSalesDaysFuture"],
+           dataFrames["dfMonthlySales"],
+           dataFrames["dfReinvestmentProjects"],
+           dataFrames["dfCannibalizationFactors"],
+           dataFrames["dfReinvestmentFactors"])
+
+final_df.coalesce(1) \
+    .write \
+    .mode("overwrite") \
+    .option("header", True) \
+    .csv("output/py_final_sales_days_forecast.csv")

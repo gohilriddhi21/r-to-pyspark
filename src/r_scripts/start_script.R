@@ -50,8 +50,10 @@ dfReinvestmentProjects <- dfReinvestmentProjects %>% mutate(
   reopen = ymd(reopen)
 )
 
-convertMe(dfSalesDaysFuture, 
+final_df <- convertMe(dfSalesDaysFuture, 
           dfMonthlySales, 
           dfReinvestmentProjects, 
           dfCannibalizationFactors, 
           dfReinvestmentFactors)
+
+write.csv(final_df, "/Users/riddhi_gohil/Desktop/personal_git_repos/r-to-pyspark/output/r_final_sales_days_forecast.csv", row.names = FALSE)

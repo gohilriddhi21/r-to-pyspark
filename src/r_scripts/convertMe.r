@@ -304,5 +304,6 @@ convertMe <- function(
     quit(save = "no", status = 1)
   }
 
+  print(head(dfSalesDaysFuture, 5))  # PRINT FIRST 5 ROWS
   return(dfSalesDaysFuture)
 }

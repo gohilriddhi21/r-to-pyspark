@@ -36,6 +36,7 @@ funFillDayDetails <- function(dfSalesMonthly){
 
     dfDayDetails <<- dfDayDetails
     blnSetSalesDaysFuture <<- TRUE
+    print(head(dfDayDetails, 5))  # PRINT FIRST 5 ROWS
   return(dfDayDetails)
 }
 
@@ -72,7 +73,8 @@ funReinvestmentProjectsToDaysLost <- function(dfReinvestment, dfSalesMonthly) {
     group_by(loc_num, month) %>%
     summarise(days_lost = max(days_lost)) %>%
     ungroup()
-
+  
+  print(head(dfReinvestment, 5))  # PRINT FIRST 5 ROWS
   return(dfReinvestment)
 }
 
