@@ -5,14 +5,7 @@ convertMe <- function(
     dfCannibalization, 
     dfReinvestFactors,
     strScope = "forecast") {
-  # This is also the source of truth for forecast months!
-
-  # For any locations provided in dfDateOpenclose (often just one provided), returns sales
-  #   days for nMidTermMonths months after strDateAsOf
-
-  # find a year with as many days as each future year and starting on the same dow as each future year
-  #   then see how many business days were in that month of that year
-
+  
   dfDayDetails <- funFillDayDetails(dfSalesMonthly)
 
   strDateAsOf <- dfSalesDaysFuture$date_forecast
