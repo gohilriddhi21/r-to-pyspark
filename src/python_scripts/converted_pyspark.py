@@ -34,13 +34,13 @@ def convert_me(dfSalesDaysFuture, dfSalesMonthly, dfReinvestmentProjects,
                  .withColumn("month_num", F.month("month")) \
                  .withColumn("leap_year", ((F.year("month") % 4 == 0) & ((F.year("month") % 100 != 0) | (F.year("month") % 400 == 0))))
     print("dfSeq: ")
-    dfSeq.show(5, truncate=False)
+    dfSeq.orderBy("loc_num").show(5, truncate=False)
 
     dfFuture = dfSeq.join(dfDayDetails, on=["jan1_day", "month_num", "leap_year"], how="inner") \
                     .drop("jan1_day", "month_num", "leap_year", "year_ref")
 
     print("dfFuture: ")
-    dfFuture.show(5, truncate=False)
+    dfFuture.orderBy("loc_num").show(5, truncate=False)
 
     window_loc = Window.partitionBy("loc_num").orderBy("month")
     dfHist = dfSalesMonthly.withColumn("month_num", F.month("month"))
@@ -92,6 +92,9 @@ def convert_me(dfSalesDaysFuture, dfSalesMonthly, dfReinvestmentProjects,
         F.col("inflation_factor_ending").alias("inflation_factor")
     )
     dfFuture = dfFuture.join(dfInfl, on=["loc_num", "reported_month"], how="left")
+    print("dfFuture join: ")
+    dfFuture.orderBy("loc_num").show(5, truncate=False)
+    
     dfInc = dfFuture.select("date_forecast", "month").distinct()
     dfInc = dfInc.withColumn("months_out", fun_months_between_exact("date_forecast", "month") + 1)
     dfInc = dfInc.withColumn(
@@ -130,9 +133,15 @@ def convert_me(dfSalesDaysFuture, dfSalesMonthly, dfReinvestmentProjects,
         F.exp(F.sum(F.log("intermediate_inflation_rate_monthly")).over(window_forecast))
     ).select("month", "date_forecast", "incremental_time_inflation")
     dfFuture = dfFuture.join(dfInc, on=["month", "date_forecast"], how="inner")
+    print("dfFuture join 2: ")
+    dfFuture.orderBy("loc_num").show(5, truncate=False)
+    
     dfFuture = dfFuture.withColumn("inflation_factor", F.col("inflation_factor") * F.col("incremental_time_inflation"))
     dfCann = dfCannibalization.withColumn("loc_num", F.lpad("loc_num", 5, "0")).withColumn("month", F.to_date("month"))
     dfFuture = dfFuture.join(dfCann, on=["loc_num", "month"], how="left")
+    print("dfFuture join 3: ")
+    dfFuture.orderBy("loc_num").show(5, truncate=False)
+    
     dfFuture = dfFuture.withColumn("gocf", F.coalesce(F.col("gocf"), F.lit(0.0)))
     window_fill = Window.partitionBy("loc_num", "date_forecast").orderBy("month").rowsBetween(Window.unboundedPreceding, 0)
     dfFuture = dfFuture.withColumn("gocf", F.last("gocf", True).over(window_fill))
@@ -141,6 +150,9 @@ def convert_me(dfSalesDaysFuture, dfSalesMonthly, dfReinvestmentProjects,
     dfReinvF = dfReinvestFactors.withColumn("loc_num", F.lpad("loc_num", 5, "0")).withColumn("month", F.to_date("month")) \
                                 .withColumnRenamed("factor", "reinvestment_factor")
     dfFuture = dfFuture.join(dfReinvF, on=["loc_num", "month"], how="left")
+    print("dfFuture join 4: ")
+    dfFuture.orderBy("loc_num").show(5, truncate=False)
+    
     dfFuture = dfFuture.withColumn("reinvestment_factor", F.coalesce(F.col("reinvestment_factor"), F.lit(0.0)))
     dfFuture = dfFuture.withColumn("reinvestment_factor", F.last("reinvestment_factor", True).over(window_fill))
     dfFuture = dfFuture.withColumn("reinvestment_factor", F.round("reinvestment_factor", 2))
@@ -165,6 +177,7 @@ def convert_me(dfSalesDaysFuture, dfSalesMonthly, dfReinvestmentProjects,
     "age", "concept_code", "location_type_code",
     "gocf", "reinvestment_factor", "age_years", "age_group"
     ]
-    dfFuture = dfFuture.select(final_cols)
+    dfFuture = dfFuture.orderBy("loc_num").select(final_cols)
     dfFuture.show(5, truncate=False)
+    dfFuture.coalesce(1).write.mode("overwrite").csv("/Users/riddhi_gohil/Desktop/personal_git_repos/r-to-pyspark/output/temp_2", header=True)
     return dfFuture
