@@ -12,6 +12,7 @@ from helper_pyspark import (
 )
 
 def convert_me(dfSalesDaysFuture, dfSalesMonthly, dfReinvestmentProjects, dfCannibalization, dfReinvestFactors, strScope="forecast"):
+    # manual checking TBD
     dfSalesDaysFuture = dfSalesDaysFuture.filter(
         F.col("open_date").isNotNull() &
         F.col("close_date").isNotNull() &
@@ -172,6 +173,6 @@ def convert_me(dfSalesDaysFuture, dfSalesMonthly, dfReinvestmentProjects, dfCann
         "gocf", "reinvestment_factor", "age_years", "age_group"
     ]
 
-    dfFuture = dfFuture.select(final_cols).repartition(10).orderBy("loc_num")
+    dfFuture = dfFuture.select(final_cols).repartition(10).orderBy(["loc_num","month","date_forecast"])
     dfFuture.show(5, False) 
     return dfFuture
